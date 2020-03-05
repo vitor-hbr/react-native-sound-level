@@ -111,7 +111,7 @@ class RNSoundLevelModule extends ReactContextBaseJavaModule {
                 }
                 sendEvent(body);
             }
-        }, 0, 250);
+        }, 0, 60);
     }
 
     private void stopTimer() {
