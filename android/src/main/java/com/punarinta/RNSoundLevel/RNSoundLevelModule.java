@@ -65,7 +65,7 @@ class RNSoundLevelModule extends ReactContextBaseJavaModule {
 
         frameId = 0;
         isRecording = true;
-        startTimer();
+        this.reactContext.startService(new Intent(this.reactContext, RNSoundLevelService.class));
         promise.resolve(true);
     }
 
@@ -77,7 +77,7 @@ class RNSoundLevelModule extends ReactContextBaseJavaModule {
             return;
         }
 
-        stopTimer();
+        this.reactContext.stopService(new Intent(this.reactContext, RNSoundLevelService.class));
         isRecording = false;
 
         try {
@@ -91,35 +91,6 @@ class RNSoundLevelModule extends ReactContextBaseJavaModule {
         }
 
         promise.resolve(true);
-    }
-
-    private void startTimer() {
-        timer = new Timer();
-        timer.scheduleAtFixedRate(new TimerTask() {
-            @Override
-            public void run() {
-
-                WritableMap body = Arguments.createMap();
-                body.putDouble("id", frameId++);
-
-                int amplitude = recorder.getMaxAmplitude();
-                body.putInt("rawValue", amplitude);
-                if (amplitude == 0) {
-                    body.putInt("value", -160);
-                } else {
-                    body.putInt("value", (int) (20 * Math.log(((double) amplitude) / 32767d)));
-                }
-                sendEvent(body);
-            }
-        }, 0, 60);
-    }
-
-    private void stopTimer() {
-        if (timer != null) {
-            timer.cancel();
-            timer.purge();
-            timer = null;
-        }
     }
 
     private void sendEvent(Object params) {
