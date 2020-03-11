@@ -1,31 +1,50 @@
 package com.punarinta.RNSoundLevel;
 
-import android.media.MediaRecorder;
+import android.content.Context;
+import android.content.IntentFilter;
+import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
+import android.content.Intent;
+import android.content.BroadcastReceiver;
 
-import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
-import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
 
-import java.util.Timer;
-import java.util.TimerTask;
 
 class RNSoundLevelModule extends ReactContextBaseJavaModule {
-
     private static final String TAG = "RNSoundLevel";
+    private LocalBroadcastReceiver mLocalBroadcastReceiver;
+    private Promise promise;
+    private static ReactApplicationContext mReactContext;
+    private boolean hasPromise = false;
 
-    private MediaRecorder recorder;
-    private boolean isRecording = false;
-    private Timer timer;
-    private int frameId = 0;
+    public class LocalBroadcastReceiver extends BroadcastReceiver {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            int value = intent.getIntExtra("value", -100);
+            boolean error = intent.getBooleanExtra("error", false);
+            if(!error) {
+                mReactContext.getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
+                        .emit("frame", value);
+                promise.resolve(true);
+            } else {
+                logAndRejectPromise(promise, intent.getStringExtra("errorCode"), 
+                        intent.getStringExtra("errorMessage"));
+            }
+            hasPromise = false;
+        }
+    }
 
     @SuppressWarnings("WeakerAccess")
     public RNSoundLevelModule(ReactApplicationContext reactContext) {
         super(reactContext);
+        mReactContext = reactContext;
+        this.mLocalBroadcastReceiver = new LocalBroadcastReceiver();
+        LocalBroadcastManager localBroadcastManager = LocalBroadcastManager.getInstance(reactContext);
+        localBroadcastManager.registerReceiver(mLocalBroadcastReceiver, new IntentFilter("toModule"));
     }
 
     @Override
@@ -36,67 +55,29 @@ class RNSoundLevelModule extends ReactContextBaseJavaModule {
     @ReactMethod
     @SuppressWarnings("unused")
     public void start(Promise promise) {
-        if (isRecording) {
-            logAndRejectPromise(promise, "INVALID_STATE", "Please call stop before starting");
-            return;
+        if(!hasPromise) {
+            this.promise = promise;
+            mReactContext.startService(new Intent(mReactContext, RNSoundLevelService.class));
         }
-
-        recorder = new MediaRecorder();
-        try {
-            recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-            recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-            recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-            recorder.setAudioSamplingRate(22050);
-            recorder.setAudioChannels(1);
-            recorder.setAudioEncodingBitRate(32000);
-            recorder.setOutputFile(this.getReactApplicationContext().getCacheDir().getAbsolutePath() + "/soundlevel");
-        } catch (final Exception e) {
-            logAndRejectPromise(promise, "COULDNT_CONFIGURE_MEDIA_RECORDER", "Make sure you've added RECORD_AUDIO permission to your AndroidManifest.xml file " + e.getMessage());
-            return;
-        }
-
-        try {
-            recorder.prepare();
-        } catch (final Exception e) {
-            logAndRejectPromise(promise, "COULDNT_PREPARE_RECORDING", e.getMessage());
-        }
-
-        recorder.start();
-
-        frameId = 0;
-        isRecording = true;
-        this.reactContext.startService(new Intent(this.reactContext, RNSoundLevelService.class));
-        promise.resolve(true);
     }
 
     @ReactMethod
     @SuppressWarnings("unused")
     public void stop(Promise promise) {
-        if (!isRecording) {
-            logAndRejectPromise(promise, "INVALID_STATE", "Please call start before stopping recording");
-            return;
+        if(hasPromise) {
+            this.promise = promise;
+            mReactContext.stopService(new Intent(mReactContext, RNSoundLevelService.class));
         }
-
-        this.reactContext.stopService(new Intent(this.reactContext, RNSoundLevelService.class));
-        isRecording = false;
-
-        try {
-            recorder.stop();
-            recorder.release();
-        } catch (final RuntimeException e) {
-            logAndRejectPromise(promise, "RUNTIME_EXCEPTION", "No valid audio data received. You may be using a device that can't record audio.");
-            return;
-        } finally {
-            recorder = null;
-        }
-
-        promise.resolve(true);
     }
 
-    private void sendEvent(Object params) {
-        getReactApplicationContext()
-                .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-                .emit("frame", params);
+    @ReactMethod
+    public void startService() {
+        mReactContext.startService(new Intent(mReactContext, RNSoundLevelService.class));
+    }
+
+    @ReactMethod
+    public void stopService() {
+        mReactContext.stopService(new Intent(mReactContext, RNSoundLevelService.class));
     }
 
     private void logAndRejectPromise(Promise promise, String errorCode, String errorMessage) {
