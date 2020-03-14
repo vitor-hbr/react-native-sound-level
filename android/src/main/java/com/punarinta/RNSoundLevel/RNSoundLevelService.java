@@ -1,12 +1,16 @@
 package com.punarinta.RNSoundLevel;
 
 import android.media.MediaRecorder;
-import android.support.v4.content.LocalBroadcastManager;
+
+import androidx.core.app.NotificationCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
+
+import android.os.HandlerThread;
+import android.os.SystemClock;
 import android.util.Log;
 
 import android.app.Notification;
 import android.app.PendingIntent;
-import com.facebook.react.bridge.Arguments;
 import android.app.Service;
 import android.content.Intent;
 import android.os.Handler;
@@ -16,29 +20,27 @@ import android.app.NotificationChannel;
 import android.os.Build;
 
 import com.facebook.react.bridge.ReactApplicationContext;
-import com.facebook.react.bridge.WritableMap;
-import com.facebook.react.modules.core.DeviceEventManagerModule;
 
 public class RNSoundLevelService extends Service {
+  private static final String CHANNEL_ID = "MusicStrobe";
   private MediaRecorder recorder;
   private boolean isRecording = false;
-  private ReactApplicationContext context;
-  private Handler handler = new Handler();
+  private Handler handler;
+  private HandlerThread handlerThread;
   private Runnable runnableCode = new Runnable() {
-
     @Override
     public void run() {
-      int value;
-
-      int amplitude = recorder.getMaxAmplitude();
-
-      if (amplitude == 0) {
-        value = -160;
-      } else {
-        value = (int) (20 * Math.log(((double) amplitude) / 32767d));
+      while(isRecording){
+        int value;
+        int amplitude = recorder.getMaxAmplitude();
+        if (amplitude == 0) {
+          value = -130;
+        } else {
+          value = (int) (20 * Math.log(((double) amplitude) / 32767d));
+        }
+        sendEvent(value);
       }
-      sendEvent(value);
-      handler.postAtTime(this, 100);
+      SystemClock.sleep(100);
     }
   };
 
@@ -68,8 +70,7 @@ public class RNSoundLevelService extends Service {
     } finally {
       recorder = null;
     }
-    
-    this.handler.removeCallbacks(this.runnableCode);
+    handlerThread.quit();
   }
 
   @Override
@@ -82,9 +83,9 @@ public class RNSoundLevelService extends Service {
         recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
         recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
         recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-        recorder.setAudioSamplingRate(22050);
+        recorder.setAudioSamplingRate(48000);
         recorder.setAudioChannels(1);
-        recorder.setAudioEncodingBitRate(32000);
+        recorder.setAudioEncodingBitRate(384000);
         recorder.setOutputFile(this.getApplicationContext().getCacheDir().getAbsolutePath() + "/soundlevel");
       } catch (final Exception e) {
         sendEventError(true,"COULDNT_CONFIGURE_MEDIA_RECORDER", "Make sure you've added RECORD_AUDIO " +
@@ -101,19 +102,21 @@ public class RNSoundLevelService extends Service {
       recorder.start();
 
       isRecording = true;
+      handlerThread = new HandlerThread("HandlerThread");
+      handlerThread.start();
+      handler  = new Handler(handlerThread.getLooper());
+      handler.post(this.runnableCode);
 
-      this.handler.post(this.runnableCode);
-      /*
-       * createNotificationChannel(); Intent notificationIntent = new Intent(this,
-       * MainActivity.class); PendingIntent contentIntent =
-       * PendingIntent.getActivity(this, 0, notificationIntent,
-       * PendingIntent.FLAG_CANCEL_CURRENT); Notification notification = new
-       * NotificationCompat.Builder(this, CHANNEL_ID) .setContentTitle("Music Strobe")
-       * .setContentText("Mic ON") //.setSmallIcon(R.mipmap.ic_launcher)
-       * .setContentIntent(contentIntent) .setOngoing(true) .build();
-       * startForeground(SERVICE_NOTIFICATION_ID, notification);
-       */
-      return START_STICKY;
+
+      Notification notification = new
+      NotificationCompat.Builder(this, CHANNEL_ID)
+              .setContentTitle("Music Strobe")
+              .setContentText("Hearing microphone level")
+              .setSmallIcon(R.drawable.ic_mic)
+              .build();
+
+      startForeground(1, notification);
+
     }
     return 	START_NOT_STICKY;
   }
@@ -132,16 +135,6 @@ public class RNSoundLevelService extends Service {
     customEvent.putExtra("errorCode", errorCode);
     customEvent.putExtra("errorMessage", errorMessage);
     localBroadcastManager.sendBroadcast(customEvent);
-  }
-
-  private void createNotificationChannel() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-      int importance = NotificationManager.IMPORTANCE_DEFAULT;
-      NotificationChannel channel = new NotificationChannel("SOUNDLEVEL", "SOUNDLEVEL", importance);
-      channel.setDescription("CHANEL DESCRIPTION");
-      NotificationManager notificationManager = getSystemService(NotificationManager.class);
-      notificationManager.createNotificationChannel(channel);
-    }
   }
 
 }
